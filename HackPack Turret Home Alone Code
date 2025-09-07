@@ -1,0 +1,225 @@
+//Augie's Home Alone Turret Code
+
+#include <Arduino.h>
+#include <Servo.h>
+#include <IRremote.hpp>
+#include <LiquidCrystal_I2C.h>
+
+
+#define left 0x8
+#define right 0x5A
+#define up 0x18
+#define down 0x52
+#define ok 0x1C
+#define cmd1 0x45
+#define cmd2 0x46
+#define star 0x16
+#define DECODE_NEC
+
+
+Servo yawServo;
+Servo pitchServo;
+Servo rollServo;
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+
+int yawServoVal = 90;
+int pitchServoVal = 100;
+int rollServoVal = 90;
+
+
+int pitchMoveSpeed = 16;
+int yawMoveSpeed = 90;
+int yawStopSpeed = 90;
+int rollMoveSpeed = 90;
+int rollStopSpeed = 90;
+int yawPrecision = 150;
+int rollPrecision = 158;
+int pitchMax = 150;
+int pitchMin = 33;
+
+
+const int trigPin = 7;
+const int echoPin = 6;
+
+void shakeHeadYes(int moves = 3);
+void shakeHeadNo(int moves = 3);
+
+void setup() {
+  Serial.begin(9600);
+  yawServo.attach(10);
+  pitchServo.attach(11);
+  rollServo.attach(12);
+  IrReceiver.begin(9, ENABLE_LED_FEEDBACK);
+  lcd.init();
+  lcd.backlight();
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+  homeServos();
+  Serial.println("Turret Activated!");
+}
+
+
+void loop() {
+  if (IrReceiver.decode()) {
+    switch (IrReceiver.decodedIRData.command) {
+      case up: upMove(1); break;
+      case down: downMove(1); break;
+      case left: leftMove(1); break;
+      case right: rightMove(1); break;
+      case ok: fire(); break;
+      case star: fireAll(); delay(50); break;
+      case cmd1: shakeHeadYes(3); break;
+      case cmd2: shakeHeadNo(3); break;
+    }
+    IrReceiver.resume();
+  }
+
+  long distance = getDistance();
+  if (distance < 50) {
+    triggerTurretSequence();
+    delay(10000);
+  }
+  delay(5);
+}
+
+
+long getDistance() {
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  long duration = pulseIn(echoPin, HIGH);
+  return duration * 0.034 / 2;
+}
+
+
+void triggerTurretSequence() {
+  String lines[] = {
+    "Hey!",
+    "I'm gonna give you to the count of 10...",
+    "To get your ugly, yella, no-good keister off my property!"
+  };
+
+  for (int i = 0; i < 3; i++) {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(lines[i]);
+    delay(5000);
+  }
+
+  for (int count = 10; count > 0; count--) {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("COUNTING:");
+    lcd.setCursor(0, 1);
+    lcd.print(count);
+    delay(1000);
+  }
+
+  lcd.clear();
+  lcd.print("FIRE!");
+  yawServo.write(yawStopSpeed - yawMoveSpeed);
+  delay(1000);
+  yawServo.write(yawStopSpeed);
+  fireAll();
+}
+
+
+void leftMove(int moves) {
+  for (int i = 0; i < moves; i++) {
+    yawServo.write(yawStopSpeed + yawMoveSpeed);
+    delay(yawPrecision);
+    yawServo.write(yawStopSpeed);
+    delay(5);
+  }
+}
+
+void rightMove(int moves) {
+  for (int i = 0; i < moves; i++) {
+    yawServo.write(yawStopSpeed - yawMoveSpeed);
+    delay(yawPrecision);
+    yawServo.write(yawStopSpeed);
+    delay(5);
+  }
+}
+
+void upMove(int moves) {
+  for (int i = 0; i < moves; i++) {
+    if ((pitchServoVal + pitchMoveSpeed) < pitchMax) {
+      pitchServoVal += pitchMoveSpeed;
+      pitchServo.write(pitchServoVal);
+      delay(50);
+    }
+  }
+}
+
+void downMove(int moves) {
+  for (int i = 0; i < moves; i++) {
+    if ((pitchServoVal - pitchMoveSpeed) > pitchMin) {
+      pitchServoVal -= pitchMoveSpeed;
+      pitchServo.write(pitchServoVal);
+      delay(50);
+    }
+  }
+}
+
+void fire() {
+  rollServo.write(rollStopSpeed + rollMoveSpeed);
+  delay(rollPrecision);
+  rollServo.write(rollStopSpeed);
+  delay(5);
+}
+
+void fireAll() {
+  rollServo.write(rollStopSpeed + rollMoveSpeed);
+  delay(rollPrecision * 6);
+  rollServo.write(rollStopSpeed);
+  delay(5);
+}
+
+void homeServos() {
+  yawServo.write(yawStopSpeed);
+  delay(20);
+  rollServo.write(rollStopSpeed);
+  delay(100);
+  pitchServo.write(100);
+  delay(100);
+  pitchServoVal = 100;
+}
+
+void shakeHeadYes(int moves = 3) {
+  if ((pitchMax - pitchServoVal) < 15) pitchServoVal -= 15;
+  else if ((pitchServoVal - pitchMin) < 15) pitchServoVal += 15;
+  pitchServo.write(pitchServoVal);
+
+  int startAngle = pitchServoVal;
+  int nodAngle = startAngle + 15;
+
+  for (int i = 0; i < moves; i++) {
+    for (int angle = startAngle; angle <= nodAngle; angle++) {
+      pitchServo.write(angle);
+      delay(7);
+    }
+    delay(50);
+    for (int angle = nodAngle; angle >= startAngle; angle--) {
+      pitchServo.write(angle);
+      delay(7);
+    }
+    delay(50);
+  }
+}
+
+void shakeHeadNo(int moves = 3) {
+  for (int i = 0; i < moves; i++) {
+    yawServo.write(140);
+    delay(190);
+    yawServo.write(yawStopSpeed);
+    delay(50);
+    yawServo.write(40);
+    delay(190);
+    yawServo.write(yawStopSpeed);
+    delay(50);
+  }
+}
